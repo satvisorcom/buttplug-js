@@ -1,14 +1,25 @@
 {
-  "name": "buttplug-wasm",
-  "version": "2.0.1",
+  "name": "@satvisorcom/buttplug-wasm",
+  "version": "4.1.0",
+  "description": "Buttplug WASM embedded server connector",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/satvisorcom/buttplug-js.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "type": "module",
+  "main": "./dist/buttplug-wasm.mjs",
+  "types": "./dist/src/index.d.ts",
+  "files": ["dist"],
   "scripts": {
     "build:main": "tsc -p tsconfig.json",
     "build:web": "vite build",
-    "build:wasm": "cd rust; wasm-pack build"
+    "build:wasm": "cd rust; wasm-pack build --target bundler"
   },
-  "type": "module",
   "dependencies": {
-    "buttplug": "^3.2.1",
+    "@satvisorcom/buttplug": "^4.1.0",
     "eventemitter3": "^5.0.1"
   },
   "devDependencies": {

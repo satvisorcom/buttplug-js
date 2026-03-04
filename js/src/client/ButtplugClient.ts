@@ -84,7 +84,7 @@ export class ButtplugClient extends EventEmitter {
 
   public stopAllDevices = async () => {
     this._logger.Debug('ButtplugClient: StopAllDevices');
-    await this.sendMsgExpectOk({ StopCmd: { Id: 1, DeviceIndex: undefined, FeatureIndex: undefined, Inputs: true, Outputs: true } });
+    await this.sendMsgExpectOk({ StopAllDevices: { Id: 1 } });
   };
 
   protected disconnectHandler = () => {
@@ -98,14 +98,19 @@ export class ButtplugClient extends EventEmitter {
       if (x.DeviceList !== undefined) {
         this.parseDeviceList(x as Messages.DeviceList);
         break;
+      } else if (x.DeviceAdded !== undefined) {
+        this.parseDeviceAdded(x.DeviceAdded);
+      } else if (x.DeviceRemoved !== undefined) {
+        this.parseDeviceRemoved(x.DeviceRemoved);
       } else if (x.ScanningFinished !== undefined) {
         this._isScanning = false;
         this.emit('scanningfinished', x);
       } else if (x.InputReading !== undefined) {
-        // TODO this should be emitted from the device or feature, not the client
         this.emit('inputreading', x);
+      } else if (x.SensorReading !== undefined) {
+        this.emit('sensorreading', x);
       } else {
-        console.log(`Unhandled message: ${x}`);
+        console.log(`Unhandled message: ${JSON.stringify(x)}`);
       }
     }
   };
@@ -161,13 +166,14 @@ export class ButtplugClient extends EventEmitter {
 
   private parseDeviceList = (list: Messages.DeviceList) => {
     for (let [_, d] of Object.entries(list.Devices)) {
-      if (!this._devices.has(d.DeviceIndex)) {
+      const normalized = Messages.normalizeDeviceInfo(d);
+      if (!this._devices.has(normalized.DeviceIndex)) {
         const device = ButtplugClientDevice.fromMsg(
-          d,
+          normalized,
           this.sendMessageClosure
         );
         this._logger.Debug(`ButtplugClient: Adding Device: ${device}`);
-        this._devices.set(d.DeviceIndex, device);
+        this._devices.set(normalized.DeviceIndex, device);
         this.emit('deviceadded', device);
       } else {
         this._logger.Debug(`ButtplugClient: Device already added: ${d}`);
@@ -178,6 +184,28 @@ export class ButtplugClient extends EventEmitter {
         this._devices.delete(index);
         this.emit('deviceremoved', device);
       }
+    }
+  }
+
+  private parseDeviceAdded = (d: Messages.DeviceAdded) => {
+    const normalized = Messages.normalizeDeviceInfo(d);
+    if (!this._devices.has(normalized.DeviceIndex)) {
+      const device = ButtplugClientDevice.fromMsg(
+        normalized,
+        this.sendMessageClosure
+      );
+      this._logger.Debug(`ButtplugClient: Device added: ${normalized.DeviceName}`);
+      this._devices.set(normalized.DeviceIndex, device);
+      this.emit('deviceadded', device);
+    }
+  }
+
+  private parseDeviceRemoved = (d: Messages.DeviceRemoved) => {
+    const device = this._devices.get(d.DeviceIndex);
+    if (device) {
+      this._devices.delete(d.DeviceIndex);
+      device.emitDisconnected();
+      this.emit('deviceremoved', device);
     }
   }
 

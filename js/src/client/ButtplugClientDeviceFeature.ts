@@ -43,40 +43,64 @@ export class ButtplugClientDeviceFeature {
   }
 
   protected async sendOutputCmd(command: DeviceOutputCommand): Promise<void> {
-    // Make sure the requested feature is valid
     this.isOutputValid(command.outputType);
     if (command.value === undefined) {
       throw new ButtplugDeviceError(`${command.outputType} requires value defined`);
     }
 
-    let type = command.outputType;
-    let duration: undefined | number = undefined;
-    if (type == Messages.OutputType.HwPositionWithDuration) {
-      if (command.duration === undefined) {
-        throw new ButtplugDeviceError("PositionWithDuration requires duration defined");
-      }
-      duration = command.duration;
-    } 
-    let value: number;
-    let p = command.value;
-    if (p.percent === undefined) {
-      // TODO Check step limits here
-      value = command.value.steps!;
+    const type = command.outputType;
+    let scalar: number;
+    if (command.value.percent !== undefined) {
+      scalar = command.value.percent;
     } else {
-      value = Math.ceil(this._feature.Output[type]!.Value![1] * p.percent);
+      const maxSteps = this._feature.Output[type]?.Value ?? 1;
+      scalar = maxSteps > 0 ? command.value.steps! / maxSteps : 0;
     }
-    let newCommand: Messages.DeviceFeatureOutput = { Value: value, Duration: duration };
-    let outCommand = {};
-    outCommand[type.toString()] = newCommand;
 
-    let cmd: Messages.ButtplugMessage = {
-      OutputCmd: {
-        Id: 1,
-        DeviceIndex: this._deviceIndex, 
-        FeatureIndex: this._feature.FeatureIndex, 
-        Command: outCommand 
+    let cmd: Messages.ButtplugMessage;
+
+    if (type === Messages.OutputType.Rotate) {
+      cmd = {
+        RotateCmd: {
+          Id: 1,
+          DeviceIndex: this._deviceIndex,
+          Rotations: [{
+            Index: this._feature.FeatureIndex,
+            Speed: scalar,
+            Clockwise: true,
+          }]
+        }
+      };
+    } else if (type === Messages.OutputType.Position || type === Messages.OutputType.HwPositionWithDuration) {
+      if (command.duration === undefined) {
+        throw new ButtplugDeviceError("Position commands require duration");
       }
-    };
+      cmd = {
+        LinearCmd: {
+          Id: 1,
+          DeviceIndex: this._deviceIndex,
+          Vectors: [{
+            Index: this._feature.FeatureIndex,
+            Duration: command.duration,
+            Position: scalar,
+          }]
+        }
+      };
+    } else {
+      // All scalar actuators: Vibrate, Oscillate, Constrict, Inflate, etc.
+      cmd = {
+        ScalarCmd: {
+          Id: 1,
+          DeviceIndex: this._deviceIndex,
+          Scalars: [{
+            Index: this._feature.FeatureIndex,
+            Scalar: scalar,
+            ActuatorType: type,
+          }]
+        }
+      };
+    }
+
     await this.sendMsgExpectOk(cmd);
   }
 
@@ -103,36 +127,54 @@ export class ButtplugClientDeviceFeature {
   }
 
   public async runInput(inputType: Messages.InputType, inputCommand: Messages.InputCommandType): Promise<Messages.InputReading | undefined> {
-    // Make sure the requested feature is valid
     this.isInputValid(inputType);
-    let inputAttributes = this._feature.Input[inputType];
-    console.log(this._feature.Input);
-    if ((inputCommand === Messages.InputCommandType.Unsubscribe && !inputAttributes.Command.includes(Messages.InputCommandType.Subscribe)) && !inputAttributes.Command.includes(inputCommand)) {
-      throw new ButtplugDeviceError(`${inputType} does not support command ${inputCommand}`);
+
+    const sensorCmd: Messages.SensorCmd = {
+      Id: 1,
+      DeviceIndex: this._deviceIndex,
+      FeatureIndex: this._feature.FeatureIndex,
+      SensorType: inputType,
+    };
+
+    let cmd: Messages.ButtplugMessage;
+    if (inputCommand === Messages.InputCommandType.Read) {
+      cmd = { SensorReadCmd: sensorCmd };
+    } else if (inputCommand === Messages.InputCommandType.Subscribe) {
+      cmd = { SensorSubscribeCmd: sensorCmd };
+    } else {
+      cmd = { SensorUnsubscribeCmd: sensorCmd };
     }
 
-    let cmd: Messages.ButtplugMessage = {
-      InputCmd: {
-        Id: 1,
-        DeviceIndex: this._deviceIndex, 
-        FeatureIndex: this._feature.FeatureIndex, 
-        Type: inputType,
-        Command: inputCommand,
-      }
-    };
-    if (inputCommand == Messages.InputCommandType.Read) {
+    if (inputCommand === Messages.InputCommandType.Read) {
       const response = await this.send(cmd);
-      if (response.InputReading !== undefined) {
-        return response.InputReading;
+      if (response.SensorReading !== undefined) {
+        // Convert v4 SensorReading to InputReading format for compatibility
+        // Battery Data is [0-100] in v4, normalize to 0-1
+        let value = response.SensorReading.Data[0];
+        if (response.SensorReading.SensorType === Messages.InputType.Battery) {
+          if (value > 100) {
+            value = value / 10000;  // raw format like 9100 = 91%
+          } else if (value > 1) {
+            value = value / 100;    // percentage like 91 = 91%
+          }
+          // else already 0-1
+        }
+        const reading: Messages.InputReading = {
+          DeviceIndex: response.SensorReading.DeviceIndex,
+          FeatureIndex: response.SensorReading.FeatureIndex,
+          Reading: {
+            [response.SensorReading.SensorType]: { Value: value }
+          },
+          Id: response.SensorReading.Id,
+        };
+        return reading;
       } else if (response.Error !== undefined) {
         throw ButtplugError.FromError(response as Messages.Error);
       } else {
-        throw new ButtplugMessageError("Expected InputReading or Error, and didn't get either!");
+        throw new ButtplugMessageError("Expected SensorReading or Error, and didn't get either!");
       }
     } else {
-      console.log(`Sending subscribe message: ${JSON.stringify(cmd)}`);
       await this.sendMsgExpectOk(cmd);
-      console.log("Got back ok?");
     }
   }
 }

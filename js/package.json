@@ -1,11 +1,14 @@
 {
-  "name": "buttplug",
-  "version": "4.0.0",
+  "name": "@satvisorcom/buttplug",
+  "version": "4.1.0",
   "description": "Buttplug Client Implementation for Typescript/Javascript",
-  "homepage": "https://github.com/buttplugio/buttplug-js/",
+  "homepage": "https://github.com/satvisorcom/buttplug-js/",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/buttplugio/buttplug-js.git"
+    "url": "git+https://github.com/satvisorcom/buttplug-js.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   },
   "author": "Nonpolynomial Labs, LLC",
   "keywords": [

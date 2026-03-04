@@ -9,14 +9,21 @@ use buttplug::{
       HardwareCommunicationManagerEvent,
     },
   },
-  util::device_configuration::create_test_dcm,
+  util::device_configuration::{load_protocol_configs, DEVICE_CONFIGURATION_JSON},
 };
 use futures::future;
-use js_sys::Array;
 use tokio::sync::mpsc::Sender;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::BluetoothDevice;
+
+fn console_log(msg: &str) {
+  web_sys::console::log_1(&JsValue::from_str(msg));
+}
+
+fn console_error(msg: &str) {
+  web_sys::console::error_1(&JsValue::from_str(msg));
+}
 
 #[derive(Default)]
 pub struct WebBluetoothCommunicationManagerBuilder {
@@ -34,14 +41,6 @@ pub struct WebBluetoothCommunicationManager {
   sender: Sender<HardwareCommunicationManagerEvent>,
 }
 
-#[wasm_bindgen]
-extern "C" {
-  // Use `js_namespace` here to bind `console.log(..)` instead of just
-  // `log(..)`
-  #[wasm_bindgen(js_namespace = console)]
-  fn log(s: &str);
-}
-
 impl HardwareCommunicationManager for WebBluetoothCommunicationManager {
   fn name(&self) -> &'static str {
     "WebBluetoothCommunicationManager"
@@ -52,56 +51,58 @@ impl HardwareCommunicationManager for WebBluetoothCommunicationManager {
   }
 
   fn start_scanning(&mut self) -> ButtplugResultFuture {
-    info!("WebBluetooth manager scanning");
+    console_log("[bt] start_scanning called");
     let sender_clone = self.sender.clone();
     spawn_local(async move {
-      // Build the filter block
       let nav = web_sys::window().unwrap().navigator();
       if nav.bluetooth().is_none() {
-        error!("WebBluetooth is not supported on this browser");
+        console_error("[bt] WebBluetooth is NOT supported on this browser");
         return;
       }
-      info!("WebBluetooth supported by browser, continuing with scan.");
-      // HACK: As of buttplug v5, we can't just create a HardwareCommunicationManager anymore. This is
-      // using a test method to create a filled out DCM, which will work for now because there's no
-      // way for anyone to add device configurations through FFI yet anyways.
-      let config_manager = create_test_dcm(false);
-      let mut options = web_sys::RequestDeviceOptions::new();
-      let filters = Array::new();
-      let optional_services = Array::new();
+      console_log("[bt] WebBluetooth supported, building filters...");
+      let config_manager = load_protocol_configs(
+        &Some(DEVICE_CONFIGURATION_JSON.to_string()),
+        &None,
+        false,
+      ).expect("Failed to load device configs").finish().expect("Failed to build DCM");
+      let options = web_sys::RequestDeviceOptions::new();
+      let mut filters: Vec<web_sys::BluetoothLeScanFilterInit> = Vec::new();
+      let mut optional_services: Vec<js_sys::JsString> = Vec::new();
       for vals in config_manager.protocol_device_configurations().iter() {
         for config in vals.1 {
           if let ProtocolCommunicationSpecifier::BluetoothLE(btle) = &config {
             for name in btle.names() {
-              let mut filter = web_sys::BluetoothLeScanFilterInit::new();
+              let filter = web_sys::BluetoothLeScanFilterInit::new();
               if name.contains("*") {
                 let mut name_clone = name.clone();
                 name_clone.pop();
-                filter.name_prefix(&name_clone);
+                filter.set_name_prefix(&name_clone);
               } else {
-                filter.name(&name);
+                filter.set_name(&name);
               }
-              filters.push(&filter.into());
+              filters.push(filter);
             }
             for (service, _) in btle.services() {
-              optional_services.push(&service.to_string().into());
+              optional_services.push(service.to_string().into());
             }
           }
         }
       }
-      options.filters(&filters.into());
-      options.optional_services(&optional_services.into());
+      console_log(&format!("[bt] Built {} filters, {} services", filters.len(), optional_services.len()));
+      options.set_filters(&filters);
+      options.set_optional_services(&optional_services);
+      console_log("[bt] Calling requestDevice()...");
       let nav = web_sys::window().unwrap().navigator();
-      //nav.bluetooth().get_availability();
-      //JsFuture::from(nav.bluetooth().request_device()).await;
       match JsFuture::from(nav.bluetooth().unwrap().request_device(&options)).await {
         Ok(device) => {
           let bt_device = BluetoothDevice::from(device);
           if bt_device.name().is_none() {
+            console_log("[bt] Device has no name, skipping");
             return;
           }
           let name = bt_device.name().unwrap();
           let address = bt_device.id();
+          console_log(&format!("[bt] Device found: {} ({})", name, address));
           let device_creator = Box::new(WebBluetoothHardwareConnector::new(bt_device));
           if sender_clone
             .send(HardwareCommunicationManagerEvent::DeviceFound {
@@ -112,13 +113,13 @@ impl HardwareCommunicationManager for WebBluetoothCommunicationManager {
             .await
             .is_err()
           {
-            error!("Device manager receiver dropped, cannot send device found message.");
+            console_error("[bt] Device manager receiver dropped");
           } else {
-            info!("WebBluetooth device found.");
+            console_log("[bt] Device sent to manager");
           }
         }
         Err(e) => {
-          error!("Error while trying to start bluetooth scan: {:?}", e);
+          console_error(&format!("[bt] requestDevice() error: {:?}", e));
         }
       };
       let _ = sender_clone

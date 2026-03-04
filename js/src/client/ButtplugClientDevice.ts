@@ -151,7 +151,7 @@ export class ButtplugClientDevice extends EventEmitter {
   }
 
   public async stop(): Promise<void> {
-    await this.sendMsgExpectOk({StopCmd: { Id: 1, DeviceIndex: this.index, FeatureIndex: undefined, Inputs: true, Outputs: true}});
+    await this.sendMsgExpectOk({StopDeviceCmd: { Id: 1, DeviceIndex: this.index }});
   }
 
   public async battery(): Promise<number> {

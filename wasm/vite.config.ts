@@ -9,14 +9,15 @@ import topLevelAwait from "vite-plugin-top-level-await";
 export default defineConfig({
   build: {
     lib: {
-      // Could also be a dictionary or array of multiple entry points
       entry: resolve(__dirname, 'src/index.ts'),
       name: 'buttplug-wasm',
-      // the proper extensions will be added
       fileName: (format) => 'buttplug-wasm.mjs',
       formats: ['es'],
     },
     outDir: 'dist',
+    rollupOptions: {
+      external: ['env', '@satvisorcom/buttplug', 'eventemitter3'],
+    },
   },
   resolve: {
     alias: {

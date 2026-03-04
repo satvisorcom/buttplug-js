@@ -29,10 +29,21 @@ export interface ButtplugMessage {
   StopScanning?: StopScanning;
   ScanningFinished?: ScanningFinished;
   StopCmd?: StopCmd;
+  StopDeviceCmd?: StopDeviceCmd;
+  StopAllDevices?: StopAllDevices;
+  ScalarCmd?: ScalarCmd;
+  LinearCmd?: LinearCmd;
+  RotateCmd?: RotateCmd;
   InputCmd?: InputCmd;
   InputReading?: InputReading;
+  SensorReadCmd?: SensorCmd;
+  SensorSubscribeCmd?: SensorCmd;
+  SensorUnsubscribeCmd?: SensorCmd;
+  SensorReading?: SensorReading;
   OutputCmd?: OutputCmd;
   DeviceList?: DeviceList;
+  DeviceAdded?: DeviceAdded;
+  DeviceRemoved?: DeviceRemoved;
 }
 
 export function msgId(msg: ButtplugMessage): number {
@@ -131,6 +142,74 @@ export interface DeviceList {
   Id: number | undefined;
 }
 
+export interface DeviceAdded extends DeviceInfo {
+  Id: number | undefined;
+}
+
+export interface DeviceRemoved {
+  DeviceIndex: number;
+  Id: number | undefined;
+}
+
+/**
+ * Normalize a DeviceFeatures value from the Rust server's serde format (array of
+ * {description, feature-type, actuator, sensor}) into the JS client's expected
+ * format (object keyed by index with {FeatureDescriptor, Output, Input, FeatureIndex}).
+ */
+export function normalizeDeviceFeatures(raw: any): { [key: number]: DeviceFeature } {
+  // Already in JS format (object keyed by index)
+  if (!Array.isArray(raw)) return raw;
+
+  const result: { [key: number]: DeviceFeature } = {};
+  const cmdMap: Record<string, string> = {
+    SensorReadCmd: 'Read',
+    SensorSubscribeCmd: 'Subscribe',
+    SensorUnsubscribeCmd: 'Unsubscribe',
+  };
+
+  raw.forEach((f: any, i: number) => {
+    const feature: DeviceFeature = {
+      FeatureDescriptor: f.description || '',
+      Output: {},
+      Input: {},
+      FeatureIndex: i,
+    };
+
+    const featureType = f['feature-type'] || 'Unknown';
+
+    if (f.actuator) {
+      const range = f.actuator['step-range'] || f.actuator['step-limit'] || [0, 1];
+      feature.Output[featureType] = { Value: range[1] || 1 };
+    }
+
+    if (f.sensor) {
+      const valueRange = f.sensor['value-range'];
+      const messages: string[] = f.sensor.messages || [];
+      feature.Input[featureType] = {
+        Value: valueRange ? valueRange[0] : [0, 1],
+        Command: messages.map((c: string) => cmdMap[c] || c) as InputCommandType[],
+      };
+    }
+
+    result[i] = feature;
+  });
+
+  return result;
+}
+
+/**
+ * Normalize a DeviceInfo, converting Rust feature format if needed.
+ */
+export function normalizeDeviceInfo(d: any): DeviceInfo {
+  return {
+    DeviceIndex: d.DeviceIndex,
+    DeviceName: d.DeviceName,
+    DeviceFeatures: normalizeDeviceFeatures(d.DeviceFeatures),
+    DeviceDisplayName: d.DeviceDisplayName,
+    DeviceMessageTimingGap: d.DeviceMessageTimingGap,
+  };
+}
+
 export enum OutputType {
   Unknown = 'Unknown',
   Vibrate = 'Vibrate',
@@ -206,4 +285,60 @@ export interface StopCmd {
   FeatureIndex: number | undefined;
   Inputs: boolean | undefined;
   Outputs: boolean | undefined;
+}
+
+export interface StopDeviceCmd {
+  Id: number | undefined;
+  DeviceIndex: number;
+}
+
+export interface ScalarSubcommand {
+  Index: number;
+  Scalar: number;
+  ActuatorType: string;
+}
+
+export interface ScalarCmd {
+  Id: number | undefined;
+  DeviceIndex: number;
+  Scalars: ScalarSubcommand[];
+}
+
+export interface LinearSubcommand {
+  Index: number;
+  Duration: number;
+  Position: number;
+}
+
+export interface LinearCmd {
+  Id: number | undefined;
+  DeviceIndex: number;
+  Vectors: LinearSubcommand[];
+}
+
+export interface RotateSubcommand {
+  Index: number;
+  Speed: number;
+  Clockwise: boolean;
+}
+
+export interface RotateCmd {
+  Id: number | undefined;
+  DeviceIndex: number;
+  Rotations: RotateSubcommand[];
+}
+
+export interface SensorCmd {
+  Id: number | undefined;
+  DeviceIndex: number;
+  FeatureIndex: number;
+  SensorType: string;
+}
+
+export interface SensorReading {
+  Id: number | undefined;
+  DeviceIndex: number;
+  FeatureIndex: number;
+  SensorType: string;
+  Data: number[];
 }
