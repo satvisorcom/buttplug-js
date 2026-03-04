@@ -1,6 +1,6 @@
 {
   "name": "@satvisorcom/buttplug-wasm",
-  "version": "4.1.0",
+  "version": "4.1.1",
   "description": "Buttplug WASM embedded server connector",
   "repository": {
     "type": "git",

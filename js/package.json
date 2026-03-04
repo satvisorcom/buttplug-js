@@ -1,6 +1,6 @@
 {
   "name": "@satvisorcom/buttplug",
-  "version": "4.1.0",
+  "version": "4.1.1",
   "description": "Buttplug Client Implementation for Typescript/Javascript",
   "homepage": "https://github.com/satvisorcom/buttplug-js/",
   "repository": {
@@ -21,6 +21,7 @@
   },
   "main": "./dist/main/src/index.js",
   "types": "./dist/main/src/index.d.ts",
+  "files": ["dist"],
   "scripts": {
     "build": "trash dist dist-bundle && yarn build:all",
     "build:all": "yarn build:main && yarn build:web",
